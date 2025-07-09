@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.28)
 project(SoL-euler-3D LANGUAGES CXX CUDA)
 
 # Set C++17 and CUDA architectures
@@ -16,12 +16,14 @@ endif()
 
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/external/inih)
+add_subdirectory(${CMAKE_SOURCE_DIR}/external/nvbench)
 
 # === Main CUDA executable ===
 add_executable(SoL-euler-3D src/main.cu)
 
 target_include_directories(SoL-euler-3D PRIVATE
     external/inih
+    external/nvbench
 )
 
-target_link_libraries(SoL-euler-3D PRIVATE inih)
+target_link_libraries(SoL-euler-3D PRIVATE inih nvbench)

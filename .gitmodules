@@ -2,3 +2,6 @@
     path = external/inih
     url = https://github.com/rbourgeois33/inih
 	branch = master
+[submodule "external/nvbench"]
+	path = external/nvbench
+	url = https://github.com/NVIDIA/nvbench.git
