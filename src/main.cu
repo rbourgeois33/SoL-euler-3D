@@ -7,6 +7,47 @@
 #include <string>
 #include "INIReader.h"
 
+using _TYPE_ = double;
+
+struct BenchmarkResult {
+  float milliseconds;
+  double flops;
+  double bandwidth_bytes;
+};
+
+inline BenchmarkResult benchmark(const std::string& label,
+                                 std::function<void()> func,
+                                 size_t flops,
+                                 size_t loads,
+                                 size_t stores,
+                                 size_t nrepeat=1)
+{
+  // Sync before
+  cudaDeviceSynchronize();
+
+  auto start = std::chrono::high_resolution_clock::now();
+  
+  for (size_t n=0; n<nrepeat ; n++){
+  func();
+  cudaDeviceSynchronize();
+  }
+
+  auto end = std::chrono::high_resolution_clock::now();
+
+  float ms = std::chrono::duration<float, std::milli>(end - start).count();
+
+  double gflops = nrepeat*(flops / 1e9) / (ms / 1000.0); //GFLOPs;
+  double bandwidth = nrepeat*((loads + stores) / (1024.0 * 1024.0 * 1024.0)) / (ms / 1000.0); // GB/s
+
+  std::cout <<"\n==" <<label << "==  "<<"  Time: " << ms << " ms\n";
+  if (flops > 0)
+    std::cout << "  Throughput:" << gflops << " GFLOP/s\n";
+  if (loads + stores > 0)
+    std::cout << "  Bandwidth: " << bandwidth << " GB/s\n";
+  std::cout << std::endl;
+
+  return {ms, gflops, bandwidth};
+}
 
 
 int main(int argc, char* argv[]) {
@@ -43,10 +84,14 @@ int main(int argc, char* argv[]) {
 
 
     /* device allocation */
-    thrust::device_vector<int> Uin(size_x), Uout(size_x);
+    thrust::device_vector<_TYPE_> Uin(size_x), Uout(size_x);
 
     /* initialisation */
-    thrust::fill(Uin.begin(), Uin.end(), 1);
+    auto benchmark_fill = benchmark("fill", [&]() {
+      thrust::fill(Uin.begin(), Uin.end(), 1);}, 
+      0, //#of operations
+      0, //# of reads
+      size_x*sizeof(_TYPE_)); //# of writes
 
     return 0;
 }
