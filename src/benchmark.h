@@ -30,30 +30,31 @@ benchmark(const std::string &label, std::function<void()> func,
   // if (flops > 0)
   //   std::cout << "  Throughput:" << gflops << " GFLOP/s\n";
   if (loads + stores > 0)
-    std::cout << "  Bandwidth: " << bandwidth << " GB/s = "<< 100*bandwidth/max_bw<< "% SoL\n";
+    std::cout << "  Bandwidth: " << bandwidth
+              << " GB/s = " << 100 * bandwidth / max_bw << "% SoL\n";
 
   return {ms, 0, bandwidth};
 }
 
-#include <iostream>
 #include <cuda_runtime.h>
+#include <iostream>
 
 TYPE get_device_bandwidth_GBs() {
-    cudaDeviceProp prop;
-    int device = 0;
-    cudaGetDevice(&device);
-    cudaGetDeviceProperties(&prop, device);
+  cudaDeviceProp prop;
+  int device = 0;
+  cudaGetDevice(&device);
+  cudaGetDeviceProperties(&prop, device);
 
-    // Compute memory bandwidth:
-    // memoryClockRate is in kHz, memoryBusWidth is in bits
-    TYPE mem_clock_mhz = prop.memoryClockRate * 1e-3; // MHz
-    TYPE bus_width_bytes = prop.memoryBusWidth / 8.0; // bits to bytes
-    TYPE bandwidth_bytes_per_sec = 2.0 * mem_clock_mhz * 1e6 * bus_width_bytes;
+  // Compute memory bandwidth:
+  // memoryClockRate is in kHz, memoryBusWidth is in bits
+  TYPE mem_clock_mhz = prop.memoryClockRate * 1e-3; // MHz
+  TYPE bus_width_bytes = prop.memoryBusWidth / 8.0; // bits to bytes
+  TYPE bandwidth_bytes_per_sec = 2.0 * mem_clock_mhz * 1e6 * bus_width_bytes;
 
-    TYPE bandwidth_GBs = bandwidth_bytes_per_sec / 1e9;
+  TYPE bandwidth_GBs = bandwidth_bytes_per_sec / 1e9;
 
-    std::cout << "Your device (" << prop.name << ") has a max bandwidth of "
-              << bandwidth_GBs << " GB/s" << std::endl;
+  std::cout << "\nYour device (" << prop.name << ") has a max bandwidth of "
+            << bandwidth_GBs << " GB/s" << std::endl;
 
-    return bandwidth_GBs;
+  return bandwidth_GBs;
 }
