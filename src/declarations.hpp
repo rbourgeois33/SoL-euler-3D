@@ -7,9 +7,8 @@ constexpr TYPE myone = 1.0;
 constexpr TYPE myhuge = 1e100;
 
 __host__ __device__ inline TYPE mysin(TYPE x) {
-    if constexpr (std::is_same<TYPE, float>::value)
-        return sinf(x); 
-    else if constexpr (std::is_same<TYPE, double>::value)
-        return sin(x);   
+  if constexpr (std::is_same<TYPE, float>::value)
+    return sinf(x);
+  else if constexpr (std::is_same<TYPE, double>::value)
+    return sin(x);
 }
-
