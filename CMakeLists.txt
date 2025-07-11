@@ -1,29 +1,27 @@
-cmake_minimum_required(VERSION 3.28)
-project(SoL-euler-3D LANGUAGES CXX CUDA)
+cmake_minimum_required(VERSION 3.18)
+project(MyThrustProject LANGUAGES CXX CUDA)
 
-# Set C++17 and CUDA architectures
+# Enable C++17 and CUDA features
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_ARCHITECTURES 70 80 89 90)
 
-# Require CUDA architectures to be specified
-if (NOT CMAKE_CUDA_ARCHITECTURES)
-    message(FATAL_ERROR
-        "CMAKE_CUDA_ARCHITECTURES not set.\n"
-        "Please specify it manually, e.g., via:\n"
-        "  cmake -DCMAKE_CUDA_ARCHITECTURES=70 .."
-    )
-endif()
+# Use Thrust from CUDA toolkit (recommended)
+find_package(CUDAToolkit REQUIRED)
 
-
+# Add external library
 add_subdirectory(${CMAKE_SOURCE_DIR}/external/inih)
-add_subdirectory(${CMAKE_SOURCE_DIR}/external/nvbench)
 
-# === Main CUDA executable ===
-add_executable(SoL-euler-3D src/main.cu)
+# Add executable target
+add_executable(SoL_Euler_3D src/main.cu)
 
-target_include_directories(SoL-euler-3D PRIVATE
-    external/inih
-    external/nvbench
-)
+# Include directories
+target_include_directories(SoL_Euler_3D PRIVATE
+    external/inih)
 
-target_link_libraries(SoL-euler-3D PRIVATE inih nvbench)
+# Optional CUDA compile options
+target_compile_options(SoL_Euler_3D PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)
+
+# Link external libraries
+target_link_libraries(SoL_Euler_3D PRIVATE inih)

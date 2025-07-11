@@ -1,56 +1,51 @@
 // heat3d.cu
-#include <thrust/device_vector.h>
-#include <thrust/host_vector.h>
-#include <thrust/transform.h>
-#include <thrust/count.h>
+#include "INIReader.h"
 #include <iostream>
 #include <string>
-#include "INIReader.h"
+#include <thrust/count.h>
+#include <thrust/device_vector.h>
+#include <thrust/execution_policy.h>
+#include <thrust/fill.h>
+#include <thrust/functional.h>
+#include <thrust/host_vector.h>
+#include <thrust/reduce.h>
+#include <thrust/transform.h>
+#include <thrust/transform_reduce.h>
 
-using _TYPE_ = double;
+#include "declarations.hpp"
+#include "benchmark.hpp"
 
-struct BenchmarkResult {
-  float milliseconds;
-  double flops;
-  double bandwidth_bytes;
+// -----------------------------------------------------------------------------
+// Functors
+// -----------------------------------------------------------------------------
+struct SineInitFunctor {
+    TYPE dx;
+
+    __host__ __device__
+    explicit SineInitFunctor(TYPE dx_) : dx(dx_) {}
+
+    __host__ __device__
+    TYPE operator()(int i) const {
+        TYPE x = -dx * myhalf + i * dx;
+       // printf("i=%d\n",i);
+        return mysin(2 *mypi * x);
+    }
 };
 
-inline BenchmarkResult benchmark(const std::string& label,
-                                 std::function<void()> func,
-                                 size_t flops,
-                                 size_t loads,
-                                 size_t stores,
-                                 size_t nrepeat=1)
-{
-  // Sync before
-  cudaDeviceSynchronize();
+struct ComputeDtFunctor {
+    TYPE dx2, alpha, CFL;
 
-  auto start = std::chrono::high_resolution_clock::now();
-  
-  for (size_t n=0; n<nrepeat ; n++){
-  func();
-  cudaDeviceSynchronize();
-  }
+    __host__ __device__
+    ComputeDtFunctor(TYPE dx2_, TYPE alpha_, TYPE CFL_)
+        : dx2(dx2_), alpha(alpha_), CFL(CFL_) {}
 
-  auto end = std::chrono::high_resolution_clock::now();
+    __host__ __device__
+    TYPE operator()(TYPE ui) const {
+        return (ui * CFL * myhalf * dx2 / alpha) / ui;
+    }
+};
 
-  float ms = std::chrono::duration<float, std::milli>(end - start).count();
-
-  double gflops = nrepeat*(flops / 1e9) / (ms / 1000.0); //GFLOPs;
-  double bandwidth = nrepeat*((loads + stores) / (1024.0 * 1024.0 * 1024.0)) / (ms / 1000.0); // GB/s
-
-  std::cout <<"\n==" <<label << "==  "<<"  Time: " << ms << " ms\n";
-  if (flops > 0)
-    std::cout << "  Throughput:" << gflops << " GFLOP/s\n";
-  if (loads + stores > 0)
-    std::cout << "  Bandwidth: " << bandwidth << " GB/s\n";
-  std::cout << std::endl;
-
-  return {ms, gflops, bandwidth};
-}
-
-
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
 
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " config.ini" << std::endl;
@@ -66,9 +61,9 @@ int main(int argc, char* argv[]) {
     }
 
     int Nx = reader.GetInteger("simulation", "Nx", -1);
-    double CFL = reader.GetReal("simulation", "CFL", -1.0);
+    TYPE CFL = reader.GetReal("simulation", "CFL", -1.0);
     int Nghost = reader.GetInteger("simulation", "Nghost", -1);
-
+    TYPE alpha = reader.GetInteger("simulation", "alpha", 1);
 
     if (Nx < 0 || CFL < 0.0) {
         std::cerr << "Invalid or missing Nx or CFL in config file." << std::endl;
@@ -77,21 +72,85 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Parsed values:\n";
     std::cout << "Nx = " << Nx << "\n";
-    std::cout << "CFL = " << CFL << "\n";   
-    std::cout << "Nghost = " << Nghost << "\n";   
+    std::cout << "CFL = " << CFL << "\n";
+    std::cout << "Nghost = " << Nghost << "\n";
 
-    const int size_x = Nx + 2*Nghost;
-
+    const int size_x = Nx + 2 * Nghost;
+    const int start_x = Nghost;
+    const int end_x = size_x - Nghost;
+    TYPE dx = 1.0 / (Nx);
+    TYPE dx2 = dx * dx;
 
     /* device allocation */
-    thrust::device_vector<_TYPE_> Uin(size_x), Uout(size_x);
+    thrust::device_vector<TYPE> Uin(size_x), Uout(size_x);
 
     /* initialisation */
-    auto benchmark_fill = benchmark("fill", [&]() {
-      thrust::fill(Uin.begin(), Uin.end(), 1);}, 
-      0, //#of operations
-      0, //# of reads
-      size_x*sizeof(_TYPE_)); //# of writes
+    auto benchmark_fill = benchmark(
+        "fill with 1",
+        [&]() {
+            thrust::fill(Uin.begin(), Uin.end(), myone);
+        },
+        0,
+        size_x * sizeof(TYPE));
+
+    TYPE sum_1 = 0;
+    auto benchmark_sum_1 = benchmark(
+        "sum of 1's",
+        [&]() {
+            sum_1 = thrust::reduce(
+                Uin.begin() + Nghost,
+                Uin.end() - Nghost,
+                myzero,
+                thrust::plus<TYPE>());
+        },
+        Nx * sizeof(TYPE),
+        1 * sizeof(TYPE));
+    std::cout << "sum_1 = " << sum_1<< " expected = " << (TYPE)Nx << std::endl;
+    
+    /* initialisation sine */
+    auto benchmark_sine = benchmark(
+        "fill with sine",
+        [&]() {
+            thrust::transform(
+                thrust::counting_iterator<int>(start_x), //input First, integers
+                thrust::counting_iterator<int>(end_x), //input Last, integers
+                Uin.begin()+Nghost, //Result
+                SineInitFunctor(dx));
+        },
+        0,
+        Nx * sizeof(TYPE));
+
+    TYPE dtmin = 0;
+    auto benchmark_compute_dt = benchmark(
+        "compute_dt",
+        [&]() {
+            dtmin = thrust::transform_reduce(
+                Uin.begin() + Nghost,
+                Uin.end() - Nghost,
+                ComputeDtFunctor(dx2, alpha, CFL),
+                myhuge,
+                thrust::minimum<TYPE>());
+        },
+        Nx * sizeof(TYPE),
+        1 * sizeof(TYPE));
+
+    std::cout << "dtmin= " << dtmin
+              << " expected=" << CFL * myhalf * dx2 / alpha << std::endl;
+
+    TYPE sum = 0;
+    auto benchmark_sum = benchmark(
+        "sum",
+        [&]() {
+            sum = thrust::reduce(
+                Uin.begin() + Nghost,
+                Uin.end() - Nghost,
+                myzero,
+                thrust::plus<TYPE>());
+        },
+        Nx * sizeof(TYPE),
+        1 * sizeof(TYPE));
+
+    std::cout << "sum = " << dx * sum << " expected = " << 0.0 << std::endl;
 
     return 0;
 }
